@@ -1,31 +1,23 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: vulnerable-deployment
-  labels:
-    app: vulnerable-app
+  name: exploit-test
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: vulnerable-app
+      app: test
   template:
     metadata:
       labels:
-        app: vulnerable-app
+        app: test
     spec:
-      hostNetwork: true              # ❌ exposes host network
-      hostPID: true                  # ❌ access to host processes
+      hostNetwork: true
+      hostPID: true
       containers:
-        - name: nginx
-          image: nginx:latest        # ❌ latest tag (not pinned)
-          ports:
-            - containerPort: 80
+        - name: test
+          image: nginx:latest
           securityContext:
-            privileged: true         # ❌ full host access
+            privileged: true
+            runAsUser: 0
             allowPrivilegeEscalation: true
-            runAsUser: 0             # ❌ running as root
-          env:
-            - name: DB_PASSWORD
-              value: "SuperSecret123"   # ❌ hardcoded secret
-          resources: {}              # ❌ no limits/requests
