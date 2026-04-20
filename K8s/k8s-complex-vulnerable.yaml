@@ -1,0 +1,124 @@
+# -------------------------------
+# 1. NAMESPACE (just for grouping)
+# -------------------------------
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: insecure-namespace
+
+---
+# -------------------------------
+# 2. SERVICE ACCOUNT
+# -------------------------------
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: insecure-sa
+  namespace: insecure-namespace
+
+---
+# -------------------------------
+# 3. CLUSTER ROLE (Overly permissive)
+# -------------------------------
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: insecure-cluster-role
+rules:
+  - apiGroups: ["*"]
+    resources: ["*"]
+    verbs: ["*"]   # ❌ full admin access
+
+---
+# -------------------------------
+# 4. CLUSTER ROLE BINDING
+# -------------------------------
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: insecure-binding
+subjects:
+  - kind: ServiceAccount
+    name: insecure-sa
+    namespace: insecure-namespace
+roleRef:
+  kind: ClusterRole
+  name: insecure-cluster-role
+  apiGroup: rbac.authorization.k8s.io
+
+---
+# -------------------------------
+# 5. SECRET (hardcoded)
+# -------------------------------
+apiVersion: v1
+kind: Secret
+metadata:
+  name: db-secret
+  namespace: insecure-namespace
+type: Opaque
+stringData:
+  password: SuperSecret123   # ❌ hardcoded secret
+
+---
+# -------------------------------
+# 6. DEPLOYMENT (Main vulnerable workload)
+# -------------------------------
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vulnerable-deployment
+  namespace: insecure-namespace
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: vulnerable-app
+  template:
+    metadata:
+      labels:
+        app: vulnerable-app
+    spec:
+      serviceAccountName: insecure-sa
+      hostNetwork: true            # ❌
+      hostPID: true                # ❌
+      containers:
+        - name: nginx
+          image: nginx:latest      # ❌
+          ports:
+            - containerPort: 80
+          securityContext:
+            privileged: true       # ❌
+            allowPrivilegeEscalation: true
+            runAsUser: 0           # ❌
+          env:
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: db-secret
+                  key: password
+          volumeMounts:
+            - name: host-volume
+              mountPath: /host
+      volumes:
+        - name: host-volume
+          hostPath:
+            path: /               # ❌ full host filesystem mount
+            type: Directory
+
+---
+# -------------------------------
+# 7. SERVICE (NodePort exposed)
+# -------------------------------
+apiVersion: v1
+kind: Service
+metadata:
+  name: vulnerable-service
+  namespace: insecure-namespace
+spec:
+  type: NodePort                # ❌ exposes service externally
+  selector:
+    app: vulnerable-app
+  ports:
+    - port: 80
+      targetPort: 80
+      nodePort: 30007
